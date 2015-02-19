@@ -7,44 +7,52 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace javaer
 {
-    public class Java
+    public class JavaToolSet
     {
         private string java32LinkText = "Download Java software for Windows Offline";
         private string java64LinkText = "Download Java software for Windows (64-bit)";
-        private string installString = @"/s AUTO_UPDATE=0 WEB_ANALYTICS=0";
+        private string installArguments = @"/s AUTO_UPDATE=0 WEB_ANALYTICS=0";
+        private string uninstallArguments = @"/x {0} /q";
         private string downloadURL = "http://www.java.com/en/download/manual.jsp";
         private string newestVersionURL = "http://java.com/applet/JreCurrentVersion2.txt";
         private string downloadFilename = "CurrentJava.exe";
+        private string eightKey = @"26A24AE4-039D-4CA4-87B4-2F8{0}{1}F0";
+        private string sevenKey = @"26A24AE4-039D-4CA4-87B4-2F0{0}{1}FF";
+        private string sixKey =   @"26A24AE4-039D-4CA4-87B4-2F8{0}{1}FF";
+
+        private List<JavaData> javas = new List<JavaData>();
         
-        
-        private bool is64bit;
-        private List<RemoteProgramData> javas = new List<RemoteProgramData>();
-        
-        public Java()
+        public JavaToolSet()
         {
-        is64bit = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432"));
+            
         }
 
-        public List<RemoteProgramData> GetInstalled()
+        public static int ConvertVersion(string version)
         {
-            if (is64bit)
+            return Convert.ToInt32(Regex.Replace(version, @"[^\d]", string.Empty));
+        }
+
+        public List<JavaData> GetInstalled()
+        {
+            if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432")))
             {
                 //Is 64 bit machine
-                JavaFolderCheck("32-Bit", @"Program Files (x86)");
-                JavaFolderCheck("64-Bit", "Program Files");
+                JavaFolderCheck(false, @"Program Files (x86)");
+                JavaFolderCheck(true, "Program Files");
             }
             else
             {
                 //is 32 bit machine
-                JavaFolderCheck(", 32-Bit", @"Program Files");
+                JavaFolderCheck(false, @"Program Files");
             }
             return javas;
         }
-        private void JavaFolderCheck(string bits, string pf)
+        private void JavaFolderCheck(bool x64, string pf)
         {
             var path = string.Format(@"c:\{0}\", pf);
             var javaPath = Path.Combine(path, "Java");
@@ -61,7 +69,7 @@ namespace javaer
                         var result = JavaVersion(fulllocalpath, "-version");
                         if (!result.Contains("ERROR"))
                         {
-                            javas.Add(new RemoteProgramData { Version = result, Name = "Java", FullPath = fulllocalpath, InstallFolder = folder, Bit = bits });
+                            javas.Add(new JavaData("Java", result, FileVersionInfo.GetVersionInfo(fulllocalpath).ProductVersion.ToString(), fulllocalpath, folder, x64));
                         }
                     }
                 }
@@ -72,28 +80,8 @@ namespace javaer
             string result = string.Empty;
             string standardError = string.Empty;
             string standardOutput = string.Empty;
-            var startInfo = new ProcessStartInfo
-            {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                //RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                FileName = filename,
-                Arguments = arguments
-            };
-
-            try
-            {
-                var pProcess = System.Diagnostics.Process.Start(startInfo);
-                standardOutput = pProcess.StandardOutput.ReadToEnd();
-                standardError = pProcess.StandardError.ReadToEnd();
-                pProcess.WaitForExit();
-            }
-            catch (Exception e)
-            {
-                Console.Write(e.ToString());
-            }            
+            
+            var exit = StartProcess(filename, arguments, ref standardError, ref standardOutput);      
 
             if (standardError.Contains("java version") == true)
             {
@@ -106,6 +94,36 @@ namespace javaer
             return result;
         }
 
+        private int StartProcess(string filename, string arguments, ref string standardError, ref string standardOutput)
+        {
+            int exit = 9002;
+            var startInfo = new ProcessStartInfo
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                //RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                FileName = filename,
+                Arguments = arguments,
+                WorkingDirectory = Directory.GetCurrentDirectory()
+            };
+
+            try
+            {
+                var pProcess = System.Diagnostics.Process.Start(startInfo);
+                standardOutput = pProcess.StandardOutput.ReadToEnd();
+                standardError = pProcess.StandardError.ReadToEnd();
+                pProcess.WaitForExit();
+                exit = pProcess.ExitCode;
+            }
+            catch
+            {
+                return exit;
+            }
+            return exit;
+        }
+
         public string MostRecent()
         {            
             WebClient client = new WebClient();
@@ -114,51 +132,23 @@ namespace javaer
             return reader.ReadToEnd().Trim();
         }
 
-        public bool InstallDownloaded()
+        public int InstallDownloaded()
         {
             string fileName = string.Empty;
             string myAppPath = Directory.GetCurrentDirectory();
             var test = Path.Combine(myAppPath, downloadFilename);
+            int exit;
             if (File.Exists(Path.Combine(myAppPath, downloadFilename)))
             {
                 fileName = Path.Combine(myAppPath, downloadFilename);
             }
             else
             {
-                return false;
+                return 9001;
             }
-            try
-            {
-                
-
-                string result = string.Empty;
-                string standardError = string.Empty;
-                string standardOutput = string.Empty;
-                var startInfo = new ProcessStartInfo
-                {
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                    //RedirectStandardInput = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    FileName = fileName,
-                    Arguments = installString,
-                    WorkingDirectory = myAppPath
-                };
-
-                    var pProcess = System.Diagnostics.Process.Start(startInfo);
-                    standardOutput = pProcess.StandardOutput.ReadToEnd();
-                    standardError = pProcess.StandardError.ReadToEnd();
-                    pProcess.WaitForExit();
-                    var exit = pProcess.ExitCode;
-
-            }
-            catch(Exception e)
-            {
-                Console.Write(e.ToString());
-                return false;
-            }
-            return true;
+            string standardError = string.Empty;
+            string standardOutput = string.Empty;
+            return exit = StartProcess(fileName, installArguments, ref standardError, ref standardOutput);   
 
         }
 
@@ -188,5 +178,20 @@ namespace javaer
             return true;
         }
 
+        public int Uninstall(JavaData java)
+        {
+            string standardError = string.Empty;
+            string standardOutput = string.Empty;
+            return StartProcess("msiexec.exe", string.Format(uninstallArguments, BuildGUID(java)), ref standardError, ref standardOutput);
+        }
+
+        private string BuildGUID(JavaData java)
+        {
+            var bits = "32";
+            if (java.x64) { bits = "64"; }
+
+            var guid = "{" + string.Format(eightKey, bits, ConvertVersion(java.Version).ToString()) + "}";
+            return guid;
+        }
     }
 }

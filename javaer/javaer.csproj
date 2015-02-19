@@ -48,7 +48,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RemoteProgramData.cs" />
-    <Compile Include="Java.cs" />
+    <Compile Include="JavaToolSet.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
