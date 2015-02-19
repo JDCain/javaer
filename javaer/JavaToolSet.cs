@@ -182,15 +182,38 @@ namespace javaer
         {
             string standardError = string.Empty;
             string standardOutput = string.Empty;
-            return StartProcess("msiexec.exe", string.Format(uninstallArguments, BuildGUID(java)), ref standardError, ref standardOutput);
+            var guid = BuildGUID(java);
+            if (!String.IsNullOrEmpty(guid))
+            {
+                return StartProcess("msiexec.exe", string.Format(uninstallArguments, guid), ref standardError, ref standardOutput);
+            }
+            else
+            {
+                return 9001;
+            }
         }
 
         private string BuildGUID(JavaData java)
         {
+            var key = string.Empty;
             var bits = "32";
             if (java.x64) { bits = "64"; }
+            string strippedVersion = ConvertVersion(java.Version).ToString();
+            var majorVersion = (int)char.GetNumericValue(strippedVersion[1]);
 
-            var guid = "{" + string.Format(eightKey, bits, ConvertVersion(java.Version).ToString()) + "}";
+            switch (majorVersion)
+            {
+                case 8: key = eightKey;
+                    break;
+                case 7: key = sevenKey;
+                    break;
+                case 6: key = sixKey;
+                    break;
+                default:
+                    return key;
+            }
+
+            var guid = "{" + string.Format(key, bits, strippedVersion) + "}";
             return guid;
         }
     }
