@@ -136,7 +136,6 @@ namespace javaer
         {
             string fileName = string.Empty;
             string myAppPath = Directory.GetCurrentDirectory();
-            var test = Path.Combine(myAppPath, downloadFilename);
             int exit;
             if (File.Exists(Path.Combine(myAppPath, downloadFilename)))
             {
@@ -148,7 +147,9 @@ namespace javaer
             }
             string standardError = string.Empty;
             string standardOutput = string.Empty;
-            return exit = StartProcess(fileName, installArguments, ref standardError, ref standardOutput);   
+            exit = StartProcess(fileName, installArguments, ref standardError, ref standardOutput);
+            File.Delete(fileName);
+            return exit;
 
         }
 
