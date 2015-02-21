@@ -2,18 +2,37 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace javaer
 {
     public class JavaToolSet
     {
+        private void RaiseDownloadProgressChanged(DownloadProgressChangedEventArgs e)
+        {
+            if (DownloadProgressChanged != null)
+            {
+                DownloadProgressChanged(this, e);
+            }
+        }
+        public event DownloadProgressChangedEventHandler DownloadProgressChanged;
+        private void RaiseDownloadComplete(AsyncCompletedEventArgs e)
+        {
+            if (DownloadCompleted != null)
+            {
+                DownloadCompleted(this, e);
+            }
+        }
+        public event AsyncCompletedEventHandler DownloadCompleted;
+
         private string java32LinkText = "Download Java software for Windows Offline";
         private string java64LinkText = "Download Java software for Windows (64-bit)";
         private string installArguments = @"/s AUTO_UPDATE=0 WEB_ANALYTICS=0";
@@ -24,12 +43,14 @@ namespace javaer
         private string eightKey = @"26A24AE4-039D-4CA4-87B4-2F8{0}{1}F0";
         private string sevenKey = @"26A24AE4-039D-4CA4-87B4-2F0{0}{1}FF";
         private string sixKey =   @"26A24AE4-039D-4CA4-87B4-2F8{0}{1}FF";
+        private Uri proxy;
 
-        private List<JavaData> javas = new List<JavaData>();
-        
-        public JavaToolSet()
+        public JavaToolSet(Uri Proxy = null)
         {
-            
+            if (Proxy != null)
+            {
+                proxy = Proxy;
+            }
         }
 
         public static int ConvertVersion(string version)
@@ -39,21 +60,24 @@ namespace javaer
 
         public List<JavaData> GetInstalled()
         {
+            var javas = new List<JavaData>();
             if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PROCESSOR_ARCHITEW6432")))
             {
                 //Is 64 bit machine
-                JavaFolderCheck(false, @"Program Files (x86)");
-                JavaFolderCheck(true, "Program Files");
+                var java32 = JavaFolderCheck(false, @"Program Files (x86)");
+                var java64 =JavaFolderCheck(true, "Program Files");
+                javas = java32.Concat(java64).ToList();
             }
             else
             {
                 //is 32 bit machine
-                JavaFolderCheck(false, @"Program Files");
+                javas = JavaFolderCheck(false, @"Program Files");
             }
             return javas;
         }
-        private void JavaFolderCheck(bool x64, string pf)
+        private List<JavaData> JavaFolderCheck(bool x64, string pf)
         {
+            var javas = new List<JavaData>();
             var path = string.Format(@"c:\{0}\", pf);
             var javaPath = Path.Combine(path, "Java");
             if (Directory.Exists(javaPath))
@@ -74,6 +98,7 @@ namespace javaer
                     }
                 }
             }
+            return javas;
         }
         private string JavaVersion(string filename, string arguments)
         {
@@ -125,18 +150,22 @@ namespace javaer
         }
 
         public string MostRecent()
-        {            
-            WebClient client = new WebClient();
-            Stream stream = client.OpenRead(newestVersionURL);
-            StreamReader reader = new StreamReader(stream);
-            return reader.ReadToEnd().Trim();
+        {
+            using (WebClient client = new WebClient())
+            {
+                client.Proxy = new WebProxy(proxy);
+                Stream stream = client.OpenRead(newestVersionURL);
+                using (StreamReader reader = new StreamReader(stream))
+                {
+                    return reader.ReadToEnd().Trim();
+                }
+            }
         }
 
         public int InstallDownloaded()
         {
             string fileName = string.Empty;
             string myAppPath = Directory.GetCurrentDirectory();
-            var test = Path.Combine(myAppPath, downloadFilename);
             int exit;
             if (File.Exists(Path.Combine(myAppPath, downloadFilename)))
             {
@@ -148,17 +177,27 @@ namespace javaer
             }
             string standardError = string.Empty;
             string standardOutput = string.Empty;
-            return exit = StartProcess(fileName, installArguments, ref standardError, ref standardOutput);   
+            exit = StartProcess(fileName, installArguments, ref standardError, ref standardOutput);
+            File.Delete(fileName);
+            return exit;
 
+        }
+
+        public bool ProxyOnPreRequest(HttpWebRequest request)
+        {
+            WebProxy myProxy = new WebProxy(proxy);
+            request.Proxy = myProxy;
+            return true; // ok, go on
         }
 
         public bool Download(bool x64)
         {
             string textLink;
-
             try
             {
                 HtmlWeb htmlWeb = new HtmlWeb();
+                htmlWeb.PreRequest = new HtmlAgilityPack.HtmlWeb.PreRequestHandler(ProxyOnPreRequest);
+
                 var document = htmlWeb.Load(downloadURL);
 
                 if (x64) { textLink = java64LinkText; }
@@ -166,10 +205,30 @@ namespace javaer
 
                 var directURL = document.DocumentNode.SelectSingleNode(string.Format("//a[@title='{0}']", textLink)).Attributes["href"].Value;
 
-                using (WebClient Client = new WebClient())
-                {
-                    Client.DownloadFile(directURL, downloadFilename);
-                }
+                    using (WebClient client = new WebClient())
+                    {
+                        // Create a timer with a two second interval.
+
+                        
+                        client.Proxy = new WebProxy(proxy);
+                        // Specify that the DownloadFileCallback method gets called when the download completes.                        
+                        client.DownloadFileCompleted += new AsyncCompletedEventHandler((sender, e) => { RaiseDownloadComplete(e); });
+                        //Create a timer for a download timeout
+                        var aTimer = new System.Timers.Timer(60000);
+                        // Specify a progress notification handler.
+                        client.DownloadProgressChanged += new DownloadProgressChangedEventHandler((sender, e) => 
+                        {
+                            // reset timer if there is progress
+                            aTimer.Stop(); aTimer.Start(); 
+                            RaiseDownloadProgressChanged(e); 
+                        }); 
+                        var downloadTask = client.DownloadFileTaskAsync(new Uri(directURL), downloadFilename);                       
+                        aTimer.Elapsed += new System.Timers.ElapsedEventHandler((s, e) => { client.CancelAsync(); });
+                        downloadTask.Wait();     
+                    }
+
+
+
             }
             catch
             {
