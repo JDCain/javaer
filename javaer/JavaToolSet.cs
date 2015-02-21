@@ -2,18 +2,37 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace javaer
 {
     public class JavaToolSet
     {
+        private void RaiseDownloadProgressChanged(DownloadProgressChangedEventArgs e)
+        {
+            if (DownloadProgressChanged != null)
+            {
+                DownloadProgressChanged(this, e);
+            }
+        }
+        public event DownloadProgressChangedEventHandler DownloadProgressChanged;
+        private void RaiseDownloadComplete(AsyncCompletedEventArgs e)
+        {
+            if (DownloadCompleted != null)
+            {
+                DownloadCompleted(this, e);
+            }
+        }
+        public event AsyncCompletedEventHandler DownloadCompleted;
+
         private string java32LinkText = "Download Java software for Windows Offline";
         private string java64LinkText = "Download Java software for Windows (64-bit)";
         private string installArguments = @"/s AUTO_UPDATE=0 WEB_ANALYTICS=0";
@@ -174,7 +193,6 @@ namespace javaer
         public bool Download(bool x64)
         {
             string textLink;
-
             try
             {
                 HtmlWeb htmlWeb = new HtmlWeb();
@@ -187,11 +205,30 @@ namespace javaer
 
                 var directURL = document.DocumentNode.SelectSingleNode(string.Format("//a[@title='{0}']", textLink)).Attributes["href"].Value;
 
-                using (WebClient client = new WebClient())
-                {
-                    client.Proxy = new WebProxy(proxy);
-                    client.DownloadFile(directURL, downloadFilename);
-                }
+                    using (WebClient client = new WebClient())
+                    {
+                        // Create a timer with a two second interval.
+
+                        
+                        client.Proxy = new WebProxy(proxy);
+                        // Specify that the DownloadFileCallback method gets called when the download completes.                        
+                        client.DownloadFileCompleted += new AsyncCompletedEventHandler((sender, e) => { RaiseDownloadComplete(e); });
+                        //Create a timer for a download timeout
+                        var aTimer = new System.Timers.Timer(60000);
+                        // Specify a progress notification handler.
+                        client.DownloadProgressChanged += new DownloadProgressChangedEventHandler((sender, e) => 
+                        {
+                            // reset timer if there is progress
+                            aTimer.Stop(); aTimer.Start(); 
+                            RaiseDownloadProgressChanged(e); 
+                        }); 
+                        var downloadTask = client.DownloadFileTaskAsync(new Uri(directURL), downloadFilename);                       
+                        aTimer.Elapsed += new System.Timers.ElapsedEventHandler((s, e) => { client.CancelAsync(); });
+                        downloadTask.Wait();     
+                    }
+
+
+
             }
             catch
             {

@@ -22,48 +22,57 @@ namespace javaer
 
     class Program
     {
-        private static string newestVersion;
+        private static void Exit(ExitCodes exitCode)
+        {
+            if (!ArgsCheck("-s"))
+            {
+                Console.WriteLine("Program exited with code {0} : {1}", (int)exitCode, exitCode.ToString());
+                Console.ReadKey();
+            }
+            Environment.Exit((int)exitCode);
+        }
+        
         private static List<string> oArgs;
+        private static bool ArgsCheck(string sSwitch)
+        {
+            return oArgs.Any(s => s.Equals(sSwitch, StringComparison.OrdinalIgnoreCase));
+        }
 
         static void Main(string[] args)
         {
             oArgs = args.ToList<string>();
+            
             ExitCodes exitCode;
 
-            Uri proxy = null;
+
+            Uri proxyServer = null; // If this stays null then it is ignored.
             var proxyFile = Path.Combine(Directory.GetCurrentDirectory(), "proxy.config");
-            if (File.Exists(proxyFile))
+            if (File.Exists(proxyFile)) //Check for proxy data file
             {
                 string read;
                 using (StreamReader reader = new StreamReader(proxyFile))
                 {
                     read = reader.ReadToEnd().Trim();
                 }
-                Uri uriResult;
-                if (Uri.TryCreate(read, UriKind.Absolute, out uriResult))
-                {
-                    if (uriResult != null)
-                    {
-                        if (uriResult.Scheme == Uri.UriSchemeHttps || uriResult.Scheme == Uri.UriSchemeHttp)
-                        {
-                            proxy = new Uri(read);
-                        }
-                    }
-                }
+                proxyServer = TestUrl(read);
+            }
+            else if (ArgsCheck("-proxy:")) //Check for command line proxy data
+            {                
+                proxyServer = TestUrl(oArgs.Find(stringToCheck => stringToCheck.ToLower().Contains(@"-proxy:")).Replace("-proxy:", string.Empty));
             }
 
             JavaToolSet javaTools;
-            if (proxy != null)
+            if (proxyServer != null)
             {
                 Console.WriteLine("Using provided proxy server setting.");
-                javaTools = new JavaToolSet(proxy);
+                javaTools = new JavaToolSet(proxyServer);
             }
             else
             {
                 javaTools = new JavaToolSet();
             }
             
-            
+            var newestVersion = string.Empty;
             //Get most recent version from Java site.
             try
             {
@@ -78,6 +87,7 @@ namespace javaer
 
             Console.WriteLine("Checking for installed Java.");
             var javas = javaTools.GetInstalled();
+            var bitWise = ArgsCheck("-64");
             if (javas.Count > 0)
             {
                 foreach(var j in javas)
@@ -86,26 +96,26 @@ namespace javaer
                 }
 
 
-                if (ArgsCheck(@"/uninstallall")) 
+                if (ArgsCheck(@"-uninstallall")) 
                 {
                     Console.WriteLine("Removing all installed Java versions.");
                     UninstallList(javaTools, javas); 
                 }
                 else
                 {
-                    var oldJava = GetOldVersions(javas);
+                    var oldJava = GetOldVersions(javas, newestVersion);
                     if (oldJava.Count > 0)
                     {
                         Console.WriteLine("Removing old versions");
                         UninstallList(javaTools, oldJava);
                     }
                 }
-                
-                var results = CheckForNewest32bit(javaTools.GetInstalled());
+
+                var results = CheckListForVersion(javaTools.GetInstalled(), newestVersion, bitWise);
 
                 if (results == null)
                 {
-                    exitCode = GetAndInstall32(javaTools);
+                    exitCode = DownloadAndInstall(javaTools, newestVersion, bitWise);
                 }
                 else
                 {
@@ -116,10 +126,26 @@ namespace javaer
             else
             {
                 Console.WriteLine("No Java instances found.");
-                exitCode = GetAndInstall32(javaTools);                
+                exitCode = DownloadAndInstall(javaTools, newestVersion, bitWise);                
             }
             
             Exit(exitCode);
+        }
+
+        private static Uri TestUrl(string read)
+        {
+            Uri uriResult;
+            if (Uri.TryCreate(read, UriKind.Absolute, out uriResult))
+            {
+                if (uriResult != null)
+                {
+                    if (uriResult.Scheme == Uri.UriSchemeHttps || uriResult.Scheme == Uri.UriSchemeHttp)
+                    {
+                        return new Uri(read);
+                    }
+                }
+            }
+            return null;
         }
 
         private static void UninstallList(JavaToolSet javaTools, List<JavaData> list)
@@ -135,28 +161,13 @@ namespace javaer
             }
         }
 
-        private static void Exit(ExitCodes exitCode)
+        private static JavaData CheckListForVersion(List<JavaData> javas, string newestVersion, bool bit)
         {
-            if (!ArgsCheck("/s"))
-            {
-                Console.WriteLine("Program exited with code {0} : {1}", (int)exitCode, exitCode.ToString());
-                Console.ReadKey();
-            }
-            Environment.Exit((int)exitCode);
-        }
-
-        private static bool ArgsCheck(string sSwitch)
-        {
-            return oArgs.Any(s => s.Equals(sSwitch, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static JavaData CheckForNewest32bit(List<JavaData> javas)
-        {
-            var results = javas.Find(prod => prod.Version == newestVersion && prod.x64 == false);
+            var results = javas.Find(prod => prod.Version == newestVersion && prod.x64 == bit);
             return results;
         }
 
-        private static List<JavaData> GetOldVersions(List<JavaData> javas)
+        private static List<JavaData> GetOldVersions(List<JavaData> javas, string newestVersion)
         {
             var results = new List<JavaData>();
             if (javas != null)
@@ -172,20 +183,27 @@ namespace javaer
             return results;
         }
 
-        private static ExitCodes GetAndInstall32(JavaToolSet java)
+        private static ExitCodes DownloadAndInstall(JavaToolSet java, string newestVersion, bool bit)
         {
-            Console.WriteLine("Downloading Java {0} 32-bit.", newestVersion);
-            if (java.Download(false))
+            var version = GetVersionString(newestVersion, bit);
+
+            if (!ArgsCheck(@"-s")) //attach to download progress event if not silent.
             {
-                Console.WriteLine("Installing Java {0} 32-bit.", newestVersion);
+                java.DownloadProgressChanged += DownloadProgressCallback;
+                java.DownloadCompleted += new System.ComponentModel.AsyncCompletedEventHandler((s, e) => Console.Write("\rDownloaded complete.                                        "));
+            }
+
+            Console.WriteLine("Downloading {0}", version);
+            if (java.Download(bit))
+            {
+                Console.WriteLine("Installing {0}", version);
                 var exitCode = java.InstallDownloaded();
                 if (exitCode == 0)
-                {
-                    ;
+                {                    
                     var javas = java.GetInstalled();
-                    if (CheckForNewest32bit(javas) != null)
+                    if (CheckListForVersion(javas, newestVersion, bit) != null)
                     {
-                        Console.WriteLine("Java {0} 32-bit Installed Successfully.", newestVersion);
+                        Console.WriteLine("{0} Installed Successfully.", version);
                         return ExitCodes.Success;
                     }
                     Console.WriteLine("Unknown Error: install ran without but new version not installed");
@@ -197,6 +215,29 @@ namespace javaer
             }
             Console.WriteLine("Error Downloading.");
             return ExitCodes.ErrorDownloading;
+        }
+
+        private static void DownloadProgressCallback(object sender, DownloadProgressChangedEventArgs e)
+        {
+            // Displays the operation identifier, and the transfer progress.
+            Console.Write("\rDownloaded {0} of {1} bytes. {2} % complete...",
+                e.BytesReceived,
+                e.TotalBytesToReceive,
+                e.ProgressPercentage);
+        }
+
+        private static string GetVersionString(string newestVersion, bool bit)
+        {
+            var version = string.Format("Java {0} {1}.", newestVersion, BoolToStringBits(bit));
+            return version;
+        }
+
+        private static string BoolToStringBits(bool bit)
+        {
+            string bits;
+            if (bit) { bits = "64-bit"; }
+            else { bits = "32-bit"; }
+            return bits;
         }
     }
 }
