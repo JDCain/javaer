@@ -7,6 +7,7 @@ using HtmlAgilityPack;
 using System.Management;
 using Microsoft.Win32;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 
 namespace javaer
 {
@@ -21,10 +22,22 @@ namespace javaer
     }
 
     class Program
-    {
+    {        
+        [DllImport("kernel32.dll")]
+        public static extern Int32 AllocConsole(); //Used to enable console if application is not silent
+        
+        private static string silentArg = "-s";
+        private static string uninstallAllArg = "-uninstallall";
+        private static string x64Arg = "-64";
+        private static List<string> oArgs;
+        private static bool ArgsCheck(string sSwitch) // checks if a arg is used. ignores case.
+        {
+            return oArgs.Any(s => s.Equals(sSwitch, StringComparison.OrdinalIgnoreCase));
+        }
+
         private static void Exit(ExitCodes exitCode)
         {
-            if (!ArgsCheck("-s"))
+            if (!ArgsCheck(silentArg))
             {
                 Console.WriteLine("Program exited with code {0} : {1}", (int)exitCode, exitCode.ToString());
                 Console.ReadKey();
@@ -32,16 +45,12 @@ namespace javaer
             Environment.Exit((int)exitCode);
         }
         
-        private static List<string> oArgs;
-        private static bool ArgsCheck(string sSwitch)
-        {
-            return oArgs.Any(s => s.Equals(sSwitch, StringComparison.OrdinalIgnoreCase));
-        }
+
 
         static void Main(string[] args)
         {
             oArgs = args.ToList<string>();
-            
+            if (!ArgsCheck(silentArg)) { AllocConsole(); } //Open console window if not silent.
             ExitCodes exitCode;
 
 
@@ -87,7 +96,7 @@ namespace javaer
 
             Console.WriteLine("Checking for installed Java.");
             var javas = javaTools.GetInstalled();
-            var bitWise = ArgsCheck("-64");
+            var bitWise = ArgsCheck(x64Arg);
             if (javas.Count > 0)
             {
                 foreach(var j in javas)
@@ -96,7 +105,7 @@ namespace javaer
                 }
 
 
-                if (ArgsCheck(@"-uninstallall")) 
+                if (ArgsCheck(uninstallAllArg)) 
                 {
                     Console.WriteLine("Removing all installed Java versions.");
                     UninstallList(javaTools, javas); 
@@ -187,7 +196,7 @@ namespace javaer
         {
             var version = GetVersionString(newestVersion, bit);
 
-            if (!ArgsCheck(@"-s")) //attach to download progress event if not silent.
+            if (!ArgsCheck(silentArg)) //attach to download progress indicator event if not silent.
             {
                 java.DownloadProgressChanged += DownloadProgressCallback;
                 java.DownloadCompleted += new System.ComponentModel.AsyncCompletedEventHandler((s, e) => Console.WriteLine("\rDownloaded complete.                                        "));
