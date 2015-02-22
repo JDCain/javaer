@@ -8,6 +8,7 @@ using System.Management;
 using Microsoft.Win32;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
+using System.Reflection;
 
 namespace javaer
 {
@@ -22,7 +23,10 @@ namespace javaer
     }
 
     class Program
-    {        
+    {   
+     
+
+
         [DllImport("kernel32.dll")]
         public static extern Int32 AllocConsole(); //Used to enable console if application is not silent
         
@@ -52,6 +56,32 @@ namespace javaer
             oArgs = args.ToList<string>();
             if (!ArgsCheck(silentArg)) { AllocConsole(); } //Open console window if not silent.
             ExitCodes exitCode;
+
+            // used to resolve embedded DLL for htmlagility http://stackoverflow.com/a/10138414/4540638
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, e) => 
+            {
+                Assembly thisAssembly = Assembly.GetExecutingAssembly();
+
+                //Get the Name of the AssemblyFile
+                var name = e.Name.Substring(0, e.Name.IndexOf(',')) + ".dll";
+
+                //Load form Embedded Resources - This Function is not called if the Assembly is in the Application Folder
+                var resources = thisAssembly.GetManifestResourceNames().Where(s => s.EndsWith(name));
+                if (resources.Count() > 0)
+                {
+                    var resourceName = resources.First();
+                    using (Stream stream = thisAssembly.GetManifestResourceStream(resourceName))
+                    {
+                        if (stream == null) return null;
+                        var block = new byte[stream.Length];
+                        stream.Read(block, 0, block.Length);
+                        return Assembly.Load(block);
+                    }
+                }
+                return null;
+            };
+
+
 
 
             Uri proxyServer = null; // If this stays null then it is ignored.
