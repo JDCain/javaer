@@ -190,27 +190,27 @@ namespace javaer
             if (!ArgsCheck(@"-s")) //attach to download progress event if not silent.
             {
                 java.DownloadProgressChanged += DownloadProgressCallback;
-                java.DownloadCompleted += new System.ComponentModel.AsyncCompletedEventHandler((s, e) => Console.Write("\rDownloaded complete.                                        "));
+                java.DownloadCompleted += new System.ComponentModel.AsyncCompletedEventHandler((s, e) => Console.WriteLine("\rDownloaded complete.                                        "));
             }
 
             Console.WriteLine("Downloading {0}", version);
             if (java.Download(bit))
             {
-                Console.WriteLine("Installing {0}", version);
+                Console.Write("Installing {0}... ", version);
                 var exitCode = java.InstallDownloaded();
                 if (exitCode == 0)
                 {                    
                     var javas = java.GetInstalled();
                     if (CheckListForVersion(javas, newestVersion, bit) != null)
                     {
-                        Console.WriteLine("{0} Installed Successfully.", version);
+                        Console.WriteLine("Installed Successfully.");
                         return ExitCodes.Success;
                     }
-                    Console.WriteLine("Unknown Error: install ran without but new version not installed");
+                    Console.WriteLine("Unknown Error. install ran without but new version not installed");
                     return ExitCodes.UnknownError;
 
                 }
-                Console.WriteLine("Java installer error: {0}.", exitCode);
+                Console.WriteLine("Installer Error {0}.", exitCode);
                 return ExitCodes.ErrorInstalling;
             }
             Console.WriteLine("Error Downloading.");
