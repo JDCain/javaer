@@ -149,7 +149,7 @@ namespace javaer
             return exit;
         }
 
-        public string MostRecent()
+        public string GetCurrentVersion()
         {
             using (WebClient client = new WebClient())
             {
@@ -183,7 +183,7 @@ namespace javaer
 
         }
 
-        public bool ProxyOnPreRequest(HttpWebRequest request)
+        private bool ProxyOnPreRequest(HttpWebRequest request)
         {
             WebProxy myProxy = new WebProxy(proxy);
             request.Proxy = myProxy;
@@ -226,9 +226,6 @@ namespace javaer
                         aTimer.Elapsed += new System.Timers.ElapsedEventHandler((s, e) => { client.CancelAsync(); });
                         downloadTask.Wait();     
                     }
-
-
-
             }
             catch
             {

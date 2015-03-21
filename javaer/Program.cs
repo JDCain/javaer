@@ -24,9 +24,6 @@ namespace javaer
 
     class Program
     {   
-     
-
-
         [DllImport("kernel32.dll")]
         public static extern Int32 AllocConsole(); //Used to enable console if application is not silent
         
@@ -56,11 +53,12 @@ namespace javaer
             oArgs = args.ToList<string>();
             if (!ArgsCheck(silentArg)) { AllocConsole(); } //Open console window if not silent.
             ExitCodes exitCode;
-
+          
+            #region HtmlAgility Resolve
             // used to resolve embedded DLL for htmlagility http://stackoverflow.com/a/10138414/4540638
-            AppDomain.CurrentDomain.AssemblyResolve += (sender, e) => 
-            {
-                Assembly thisAssembly = Assembly.GetExecutingAssembly();
+            AppDomain.CurrentDomain.AssemblyResolve += (sender, e) =>
+           {
+               Assembly thisAssembly = Assembly.GetExecutingAssembly();
 
                 //Get the Name of the AssemblyFile
                 var name = e.Name.Substring(0, e.Name.IndexOf(',')) + ".dll";
@@ -79,11 +77,10 @@ namespace javaer
                     }
                 }
                 return null;
-            };
+            }; 
+            #endregion
 
-
-
-
+            #region Proxy
             Uri proxyServer = null; // If this stays null then it is ignored.
             var proxyFile = Path.Combine(Directory.GetCurrentDirectory(), "proxy.config");
             if (File.Exists(proxyFile)) //Check for proxy data file
@@ -96,10 +93,12 @@ namespace javaer
                 proxyServer = TestUrl(read);
             }
             else if (ArgsCheck("-proxy:")) //Check for command line proxy data
-            {                
+            {
                 proxyServer = TestUrl(oArgs.Find(stringToCheck => stringToCheck.ToLower().Contains(@"-proxy:")).Replace("-proxy:", string.Empty));
-            }
+            } 
+            #endregion
 
+            #region Create ToolSet
             JavaToolSet javaTools;
             if (proxyServer != null)
             {
@@ -109,20 +108,23 @@ namespace javaer
             else
             {
                 javaTools = new JavaToolSet();
-            }
-            
+            } 
+            #endregion
+
+            #region Identify Current Version
             var newestVersion = string.Empty;
             //Get most recent version from Java site.
             try
             {
                 Console.WriteLine("Checking Java release version.");
-                newestVersion = javaTools.MostRecent();
+                newestVersion = javaTools.GetCurrentVersion();
             }
             catch
             {
                 Console.WriteLine("Cannot reach Java.com. Exiting.");
-                Exit(ExitCodes.CannotConnect);                
-            }
+                Exit(ExitCodes.CannotConnect);
+            } 
+            #endregion
 
             Console.WriteLine("Checking for installed Java.");
             var javas = javaTools.GetInstalled();
@@ -134,27 +136,33 @@ namespace javaer
                     Console.WriteLine("Found: {0}.", j.FullVersion);
                 }
 
-
-                if (ArgsCheck(uninstallAllArg)) 
-                {
-                    Console.WriteLine("Removing all installed Java versions.");
-                    UninstallList(javaTools, javas); 
-                }
-                else
-                {
-                    var oldJava = GetOldVersions(javas, newestVersion);
-                    if (oldJava.Count > 0)
-                    {
-                        Console.WriteLine("Removing old versions");
-                        UninstallList(javaTools, oldJava);
-                    }
-                }
-
                 var results = CheckListForVersion(javaTools.GetInstalled(), newestVersion, bitWise);
 
-                if (results == null)
+                if (results == null || ArgsCheck(uninstallAllArg))
                 {
-                    exitCode = DownloadAndInstall(javaTools, newestVersion, bitWise);
+                    if (Download(javaTools, newestVersion, bitWise))
+                    {
+                        //uninstall if download was successful
+                        if (ArgsCheck(uninstallAllArg))
+                        {
+                            Console.WriteLine("Removing all installed Java versions.");
+                            UninstallList(javaTools, javas);
+                        }
+                        else
+                        {
+                            var oldJava = GetOldVersions(javas, newestVersion);
+                            if (oldJava.Count > 0)
+                            {
+                                Console.WriteLine("Removing old versions");
+                                UninstallList(javaTools, oldJava);
+                            }
+                        }
+                        exitCode = InstallDownloaded(javaTools, newestVersion, bitWise);          
+                    }
+                    else
+                    {
+                        exitCode = ExitCodes.ErrorDownloading;
+                    }
                 }
                 else
                 {
@@ -165,7 +173,7 @@ namespace javaer
             else
             {
                 Console.WriteLine("No Java instances found.");
-                exitCode = DownloadAndInstall(javaTools, newestVersion, bitWise);                
+                exitCode = InstallDownloaded(javaTools, newestVersion, bitWise);                
             }
             
             Exit(exitCode);
@@ -222,7 +230,7 @@ namespace javaer
             return results;
         }
 
-        private static ExitCodes DownloadAndInstall(JavaToolSet java, string newestVersion, bool bit)
+        private static bool Download(JavaToolSet java, string newestVersion, bool bit)
         {
             var version = GetVersionString(newestVersion, bit);
 
@@ -235,25 +243,31 @@ namespace javaer
             Console.WriteLine("Downloading {0}", version);
             if (java.Download(bit))
             {
-                Console.Write("Installing {0}... ", version);
-                var exitCode = java.InstallDownloaded();
-                if (exitCode == 0)
-                {                    
-                    var javas = java.GetInstalled();
-                    if (CheckListForVersion(javas, newestVersion, bit) != null)
-                    {
-                        Console.WriteLine("Installed Successfully.");
-                        return ExitCodes.Success;
-                    }
-                    Console.WriteLine("Unknown Error. install ran without but new version not installed");
-                    return ExitCodes.UnknownError;
-
-                }
-                Console.WriteLine("Installer Error {0}.", exitCode);
-                return ExitCodes.ErrorInstalling;
+                return true;
             }
             Console.WriteLine("Error Downloading.");
-            return ExitCodes.ErrorDownloading;
+            return false;
+        }
+
+        private static ExitCodes InstallDownloaded(JavaToolSet java, string newestVersion, bool bit)
+        {
+            var version = GetVersionString(newestVersion, bit);
+            Console.Write("Installing {0}... ", version);
+            var exitCode = java.InstallDownloaded();
+            if (exitCode == 0)
+            {
+                var javas = java.GetInstalled();
+                if (CheckListForVersion(javas, newestVersion, bit) != null)
+                {
+                    Console.WriteLine("Installed Successfully.");
+                    return ExitCodes.Success;
+                }
+                Console.WriteLine("Unknown Error. install ran without but new version not installed");
+                return ExitCodes.UnknownError;
+
+            }
+            Console.WriteLine("Installer Error {0}.", exitCode);
+            return ExitCodes.ErrorInstalling;
         }
 
         private static void DownloadProgressCallback(object sender, DownloadProgressChangedEventArgs e)
